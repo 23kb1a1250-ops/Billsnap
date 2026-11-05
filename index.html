@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bill Snap</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f5c4d">
+<link rel="icon" href="icon.svg">
+<style>
+:root{--bg:#f6f4ef;--card:#fff;--ink:#1d2321;--mute:#6b7571;--acc:#0f5c4d;--warn:#b45309;--warnbg:#fff4e0;--line:#dcd8cd}
+@media(prefers-color-scheme:dark){:root{--bg:#141816;--card:#1d2321;--ink:#eceae3;--mute:#9aa5a0;--acc:#4cc2a5;--warn:#f0a94a;--warnbg:#3a2c12;--line:#33403b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:520px;margin:0 auto;padding:16px}
+h1{font-size:1.5rem;margin:8px 0 2px}
+h2{font-size:1.05rem;margin:0 0 8px}
+.sub{color:var(--mute);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.row{display:flex;gap:10px}
+.row>*{flex:1}
+button,.btn{font:inherit;font-weight:600;border:0;border-radius:10px;padding:13px;background:var(--acc);color:var(--bg);text-align:center;cursor:pointer;display:block}
+button.alt,.btn.alt{background:transparent;color:var(--acc);border:1.5px solid var(--acc)}
+button:disabled{opacity:.5}
+input[type=file]{display:none}
+label{display:block;font-size:.85rem;color:var(--mute);margin:10px 0 3px}
+input[type=text],input[type=date],input[type=number],input[type=password],select{width:100%;font:inherit;padding:11px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+.unsure input,.unsure select{border-color:var(--warn);background:var(--warnbg)}
+.flag{color:var(--warn);font-size:.8rem;font-weight:600}
+img.prev{width:100%;max-height:260px;object-fit:contain;border-radius:8px;background:#0001;margin-bottom:8px}
+.msg{padding:12px;border-radius:8px;background:var(--warnbg);color:var(--warn);margin-top:10px}
+.item{display:flex;justify-content:space-between;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.item small{color:var(--mute);display:block}
+.item b{white-space:nowrap}
+.x{background:none;color:var(--mute);padding:0 6px;font-size:1.2rem;border:0}
+.hide{display:none}
+.spin{color:var(--mute);padding:12px 0}
+.tot{display:flex;justify-content:space-between;font-weight:700;padding-top:10px;border-top:2px solid var(--line)}
+</style></head><body><main>
+<div style="display:flex;align-items:center;gap:12px;margin:8px 0 16px">
+  <img src="icon.svg" alt="" width="52" height="52" style="border-radius:12px">
+  <div><h1 style="margin:0">Welcome to My Bill Snap</h1>
+  <p class="sub" style="margin:2px 0 0">Snap a bill. Check the details. Save it.</p></div>
+</div>
+
+<div class="card" id="snap">
+  <div class="row">
+    <label class="btn" for="cam">Take photo</label>
+    <label class="btn alt" for="gal">Pick from gallery</label>
+  </div>
+  <input type="file" id="cam" accept="image/*" capture="environment">
+  <input type="file" id="gal" accept="image/*">
+  <div id="status"></div>
+</div>
+
+<div class="card hide" id="review">
+  <h2>Check the details</h2>
+  <img class="prev" id="prev" alt="Your bill">
+  <div id="note" class="flag"></div>
+  <div class="unsure-wrap" id="f-merchant"><label>Merchant <span class="flag"></span></label><input type="text" id="merchant"></div>
+  <div id="f-date"><label>Date <span class="flag"></span></label><input type="date" id="date"></div>
+  <div id="f-total"><label>Total amount <span class="flag"></span></label><input type="number" step="0.01" id="total"></div>
+  <div id="f-category"><label>Category <span class="flag"></span></label>
+    <select id="category"><option>Food</option><option>Groceries</option><option>Utilities</option><option>Transport</option><option>Shopping</option><option>Health</option><option>Entertainment</option><option>Other</option></select></div>
+  <div class="row" style="margin-top:14px"><button id="save">Save bill</button><button class="alt" id="discard">Discard</button></div>
+</div>
+
+<div class="card">
+  <h2>Saved bills</h2>
+  <div id="list"></div>
+  <div class="tot hide" id="totrow"><span>Total</span><span id="sum"></span></div>
+</div>
+
+<details class="card">
+  <summary><b>Settings and test log</b></summary>
+  <label>Gemini API key</label><input type="password" id="key" placeholder="Paste key from aistudio.google.com">
+  <label>Model</label><input type="text" id="model">
+  <div class="row" style="margin-top:12px"><button class="alt" id="savekey">Save settings</button></div>
+  <p class="sub" style="margin-top:14px">Every analysis is logged on this phone for your 20-image test table.</p>
+  <div class="row"><button class="alt" id="csv">Download test log</button><button class="alt" id="clrlog">Clear log</button></div>
+</details>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+const LOW=0.75; // fields below this confidence are marked "Not sure"
+let current=null;
+
+$('key').value=LS.get('key','');
+$('model').value=LS.get('model','gemini-2.5-flash');
+$('savekey').onclick=()=>{LS.set('key',$('key').value.trim());LS.set('model',$('model').value.trim());say('Settings saved.')};
+
+function say(t,cls){$('status').innerHTML=t?`<div class="${cls||'spin'}">${t}</div>`:''}
+
+// Shrink the photo so uploads are fast and cheap; 1280px keeps small print readable.
+function toBase64(file){return new Promise((res,rej)=>{
+  const img=new Image(),url=URL.createObjectURL(file);
+  img.onload=()=>{const s=Math.min(1,1280/Math.max(img.width,img.height));
+    const c=document.createElement('canvas');c.width=img.width*s;c.height=img.height*s;
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    const d=c.toDataURL('image/jpeg',0.85);URL.revokeObjectURL(url);res(d)};
+  img.onerror=()=>rej(new Error('Could not read this image.'));img.src=url})}
+
+const PROMPT=`You check photos of bills and receipts. Look at the image.
+Return ONLY JSON in this exact shape:
+{"is_bill":boolean,"reason":"one short sentence","merchant":string|null,"date":"YYYY-MM-DD"|null,"total":number|null,"category":"Food|Groceries|Utilities|Transport|Shopping|Health|Entertainment|Other","confidence":{"merchant":0-1,"date":0-1,"total":0-1,"category":0-1}}
+Rules:
+- is_bill is true only for a purchase bill, receipt or invoice. Selfies, ID cards, screenshots of apps/chats, documents that are not bills, and random photos are false.
+- total is the final amount payable (after tax/discount), as a number without currency symbol.
+- If a field is unreadable or missing, use null and a confidence below 0.3.
+- Be honest: give low confidence when the image is blurry, handwritten, cropped or ambiguous.`;
+
+async function analyze(file){
+  const key=LS.get('key','');
+  if(!key){say('Add your API key first: open Settings below.','msg');return}
+  $('review').classList.add('hide');
+  say('Reading your bill…');
+  try{
+    const dataUrl=await toBase64(file);
+    const model=LS.get('model','gemini-2.5-flash');
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
+      method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},
+      body:JSON.stringify({contents:[{parts:[{text:PROMPT},{inline_data:{mime_type:'image/jpeg',data:dataUrl.split(',')[1]}}]}],
+        generationConfig:{temperature:0,responseMimeType:'application/json'}})});
+    if(!r.ok){const e=await r.text();throw new Error(r.status===400||r.status===403?'The API key or model name was not accepted. Check Settings.':'The service returned an error ('+r.status+'). Try again.')}
+    const j=await r.json();
+    const txt=j.candidates[0].content.parts.map(p=>p.text||'').join('').replace(/```json|```/g,'').trim();
+    const d=JSON.parse(txt);
+    log(file.name,d);
+    if(!d.is_bill){say("This doesn't look like a bill, so nothing was saved. "+(d.reason||'')+" Try a clear photo of a receipt or invoice.",'msg');return}
+    current={d,img:dataUrl};showReview(d,dataUrl);say('');
+  }catch(e){say(e.message||'Something went wrong. Try again.','msg')}
+}
+
+function showReview(d,img){
+  $('prev').src=img;
+  $('merchant').value=d.merchant||'';$('date').value=d.date||'';
+  $('total').value=d.total??'';$('category').value=d.category||'Other';
+  let n=0;
+  ['merchant','date','total','category'].forEach(f=>{
+    const c=(d.confidence||{})[f],box=$('f-'+f),bad=d[f]==null||c==null||c<LOW;
+    box.classList.toggle('unsure',bad);box.querySelector('.flag').textContent=bad?'Not sure – please check':'';
+    if(bad)n++});
+  $('note').textContent=n?`${n} field${n>1?'s':''} need a quick check.`:'';
+  $('review').classList.remove('hide');$('review').scrollIntoView({behavior:'smooth'});
+  document.querySelectorAll('#review input,#review select').forEach(el=>el.oninput=()=>el.closest('div').classList.remove('unsure'));
+}
+
+$('cam').onchange=$('gal').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)analyze(f)};
+$('discard').onclick=()=>{$('review').classList.add('hide');current=null};
+$('save').onclick=()=>{
+  const b={id:Date.now(),merchant:$('merchant').value.trim()||'Unknown',date:$('date').value,total:parseFloat($('total').value)||0,category:$('category').value};
+  const all=LS.get('bills',[]);all.unshift(b);LS.set('bills',all);
+  $('review').classList.add('hide');current=null;say('Saved.');render();setTimeout(()=>say(''),1500)};
+
+function render(){
+  const all=LS.get('bills',[]);
+  $('list').innerHTML=all.length?all.map(b=>`<div class="item"><div>${esc(b.merchant)}<small>${esc(b.date||'No date')} · ${esc(b.category)}</small></div><div><b>${b.total.toFixed(2)}</b><button class="x" data-id="${b.id}" aria-label="Delete">×</button></div></div>`).join(''):'<div class="sub">No bills yet. Take a photo to add one.</div>';
+  $('totrow').classList.toggle('hide',!all.length);
+  $('sum').textContent=all.reduce((s,b)=>s+b.total,0).toFixed(2);
+  document.querySelectorAll('.x').forEach(x=>x.onclick=()=>{LS.set('bills',LS.get('bills',[]).filter(b=>b.id!=x.dataset.id));render()});
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// Test log: one row per analysis, for the 20-image results table.
+function log(name,d){const L=LS.get('log',[]);L.push({image:name,pred_is_bill:d.is_bill,merchant:d.merchant,date:d.date,total:d.total,category:d.category,conf:JSON.stringify(d.confidence||{})});LS.set('log',L)}
+$('csv').onclick=()=>{const L=LS.get('log',[]);if(!L.length){say('The log is empty.','msg');return}
+  const h=Object.keys(L[0]);const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
+  const csv=[h.join(',')].concat(L.map(r=>h.map(k=>q(r[k])).join(','))).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='billsnap-test-log.csv';a.click()};
+$('clrlog').onclick=()=>{LS.set('log',[]);say('Log cleared.');setTimeout(()=>say(''),1200)};
+
+render();
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script></body></html>
