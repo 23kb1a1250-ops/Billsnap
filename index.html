@@ -83,7 +83,7 @@ const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{re
 const LOW=0.75; // fields below this confidence are marked "Not sure"
 let current=null;
 
-const API_URL = 'https://YOUR-WORKER-NAME.YOUR-SUBDOMAIN.workers.dev/api/analyze';
+const API_URL = 'https://bill-scanne-api.23kb1a1250-cea.workers.dev/api/analyze';
 
 function say(t,cls){
   const el=$('status'); el.replaceChildren();
