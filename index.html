@@ -71,14 +71,11 @@ img.prev{width:100%;max-height:260px;object-fit:contain;border-radius:8px;backgr
   <div class="tot hide" id="totrow"><span>Total</span><span id="sum"></span></div>
 </div>
 
-<details class="card">
-  <summary><b>Settings and test log</b></summary>
-  <label>Gemini API key</label><input type="password" id="key" placeholder="Paste key from aistudio.google.com">
-  <label>Model</label><input type="text" id="model">
-  <div class="row" style="margin-top:12px"><button class="alt" id="savekey">Save settings</button></div>
-  <p class="sub" style="margin-top:14px">Every analysis is logged on this phone for your 20-image test table.</p>
+<div class="card">
+  <h2>Test log</h2>
+  <p class="sub" style="margin-top:8px">Every analysis is logged on this phone for your 20-image test table.</p>
   <div class="row"><button class="alt" id="csv">Download test log</button><button class="alt" id="clrlog">Clear log</button></div>
-</details>
+</div>
 </main>
 <script>
 const $=id=>document.getElementById(id);
@@ -86,11 +83,14 @@ const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{re
 const LOW=0.75; // fields below this confidence are marked "Not sure"
 let current=null;
 
-$('key').value=LS.get('key','');
-$('model').value=LS.get('model','gemini-2.5-flash');
-$('savekey').onclick=()=>{LS.set('key',$('key').value.trim());LS.set('model',$('model').value.trim());say('Settings saved.')};
+const API_URL = 'https://YOUR-WORKER-NAME.YOUR-SUBDOMAIN.workers.dev/api/analyze';
 
-function say(t,cls){$('status').innerHTML=t?`<div class="${cls||'spin'}">${t}</div>`:''}
+function say(t,cls){
+  const el=$('status'); el.replaceChildren();
+  if(!t) return;
+  const box=document.createElement('div');
+  box.className=cls||'spin'; box.textContent=t; el.appendChild(box);
+}
 
 // Shrink the photo so uploads are fast and cheap; 1280px keeps small print readable.
 function toBase64(file){return new Promise((res,rej)=>{
@@ -111,21 +111,20 @@ Rules:
 - Be honest: give low confidence when the image is blurry, handwritten, cropped or ambiguous.`;
 
 async function analyze(file){
-  const key=LS.get('key','');
-  if(!key){say('Add your API key first: open Settings below.','msg');return}
   $('review').classList.add('hide');
   say('Reading your bill…');
   try{
     const dataUrl=await toBase64(file);
-    const model=LS.get('model','gemini-2.5-flash');
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
-      method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},
-      body:JSON.stringify({contents:[{parts:[{text:PROMPT},{inline_data:{mime_type:'image/jpeg',data:dataUrl.split(',')[1]}}]}],
-        generationConfig:{temperature:0,responseMimeType:'application/json'}})});
-    if(!r.ok){const e=await r.text();throw new Error(r.status===400||r.status===403?'The API key or model name was not accepted. Check Settings.':'The service returned an error ('+r.status+'). Try again.')}
-    const j=await r.json();
-    const txt=j.candidates[0].content.parts.map(p=>p.text||'').join('').replace(/```json|```/g,'').trim();
-    const d=JSON.parse(txt);
+    const r=await fetch(API_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({image:dataUrl.split(',')[1],mimeType:'image/jpeg'})
+    });
+    let d;
+    try { d=await r.json(); }
+    catch { throw new Error('The bill-analysis server returned an unreadable response.'); }
+    if(!r.ok) throw new Error(d.error||('Bill-analysis server error ('+r.status+').'));
+    if(typeof d.is_bill!=='boolean') throw new Error('The AI response was incomplete. Please try another clear photo.');
     log(file.name,d);
     if(!d.is_bill){say("This doesn't look like a bill, so nothing was saved. "+(d.reason||'')+" Try a clear photo of a receipt or invoice.",'msg');return}
     current={d,img:dataUrl};showReview(d,dataUrl);say('');
